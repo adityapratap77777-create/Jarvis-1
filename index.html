@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>JARVIS – Wake & Learn</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#000000">
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      background: radial-gradient(circle at center, #001020 0%, #000000 90%);
+      width: 100vw; height: 100vh; overflow: hidden;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      position: relative;
+    }
+    #hud {
+      position: absolute; top: 20px; left: 20px;
+      color: #0cf; font-size: 12px; z-index: 10;
+      text-shadow: 0 0 10px #0af; line-height: 1.5;
+    }
+    #hud .title {
+      font-size: 18px; font-weight: bold; letter-spacing: 3px;
+      color: #0ff; text-shadow: 0 0 20px #0ff;
+    }
+    #modeDisplay, #wakeStatus {
+      font-size: 12px; color: #0cf;
+      text-shadow: 0 0 6px #0af;
+    }
+    #responseDisplay {
+      position: absolute;
+      top: 110px; left: 20px; right: 20px;
+      z-index: 10; color: #0cf; font-size: 15px;
+      text-align: center; pointer-events: auto;
+      text-shadow: 0 0 10px #0af;
+      max-height: 140px; overflow-y: auto;
+      line-height: 1.4; padding: 0 5px;
+    }
+    #freqCanvas {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 80vw; height: 120px; pointer-events: none;
+    }
+    #controls {
+      position: absolute;
+      bottom: 80px; left: 50%;
+      transform: translateX(-50%);
+      display: flex; gap: 12px; z-index: 10;
+      background: rgba(255,255,255,0.05);
+      backdrop-filter: blur(15px);
+      padding: 10px 16px; border-radius: 40px;
+      border: 1px solid rgba(0,200,255,0.25);
+    }
+    .glass-btn, .glass-input {
+      background: rgba(0,200,255,0.08);
+      border: 1px solid rgba(0,200,255,0.5);
+      color: #0cf; border-radius: 30px;
+      padding: 10px 18px; font-size: 14px;
+      backdrop-filter: blur(10px); outline: none;
+      transition: 0.2s; cursor: pointer;
+    }
+    .glass-btn:active, .glass-input:focus {
+      background: rgba(0,200,255,0.25);
+      box-shadow: 0 0 20px rgba(0,200,255,0.5);
+      border-color: #0ff;
+    }
+    input.glass-input {
+      width: 130px;
+      background: rgba(0,0,0,0.5);
+    }
+    #log {
+      position: absolute;
+      bottom: 180px; left: 20px;
+      color: #0af; font-size: 10px;
+      max-height: 60px; overflow-y: auto;
+      z-index: 5; pointer-events: none;
+    }
+    #menuBtn {
+      position: absolute; top: 20px; right: 20px;
+      background: rgba(0,200,255,0.1);
+      border: 1px solid rgba(0,200,255,0.5);
+      color: #0cf; font-size: 22px;
+      width: 44px; height: 44px; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(10px); cursor: pointer; z-index: 20;
+    }
+    #menuBtn:active { background: rgba(0,200,255,0.3); box-shadow: 0 0 18px #0cf; }
+    #menuPanel {
+      position: absolute; top: 75px; right: 20px;
+      background: rgba(0,15,30,0.9); backdrop-filter: blur(15px);
+      border: 1px solid rgba(0,200,255,0.3);
+      border-radius: 16px; padding: 15px;
+      display: none; flex-direction: column; gap: 12px;
+      z-index: 20; min-width: 180px;
+    }
+    #menuPanel.open { display: flex; }
+    .menu-item {
+      background: transparent; border: none;
+      color: #0cf; font-size: 14px; text-align: left;
+      padding: 8px 12px; border-radius: 10px;
+      transition: 0.2s; cursor: pointer;
+    }
+    .menu-item:hover { background: rgba(0,200,255,0.15); }
+    #menuLearnToggle.active { color: #fb0; background: rgba(255,180,0,0.2); }
+    #menuDelete { color: #f44; }
+
+    #resourceOverlay, #memoryOverlay {
+      position: fixed; top:0; left:0; width:100%; height:100%;
+      background: rgba(0,0,0,0.95); z-index:100;
+      display: none; flex-direction: column; align-items: center;
+      justify-content: center; padding: 20px;
+    }
+    #resourceOverlay textarea, #memoryList {
+      width:90%; height:250px; background:#001020; border:1px solid #0cf;
+      color:#0cf; border-radius:16px; padding:15px; font-size:14px;
+      backdrop-filter:blur(10px); outline:none; resize:none;
+      overflow-y:auto;
+    }
+    #memoryList { white-space:pre-wrap; text-align:left; }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <div class="title">J.A.R.V.I.S.</div>
+    <div id="modeDisplay">Normal</div>
+    <div id="wakeStatus">Say "Jarvis" to wake</div>
+  </div>
+  <div id="responseDisplay"></div>
+  <div id="log"></div>
+
+  <div id="menuBtn">☰</div>
+  <div id="menuPanel">
+    <button class="menu-item" id="menuLearnToggle">🧠 Learn : OFF</button>
+    <button class="menu-item" id="menuResourcesBtn">📚 Resources</button>
+    <button class="menu-item" id="menuViewMemory">📖 View memory</button>
+    <button class="menu-item" id="menuForgetLast">↩️ Forget last</button>
+    <button class="menu-item" id="menuDelete">🗑️ Clear all</button>
+  </div>
+
+  <canvas id="freqCanvas"></canvas>
+
+  <div id="controls">
+    <button class="glass-btn" id="micBtn">🎤 Speak</button>
+    <input class="glass-input" id="textCmd" type="text" placeholder="Type...">
+  </div>
+
+  <div id="resourceOverlay">
+    <div style="color:#0cf; font-size:16px; margin-bottom:10px;">📚 Add Knowledge</div>
+    <textarea id="resourceText" placeholder="Paste notes, articles, or facts..."></textarea>
+    <div style="margin:10px; display:flex; gap:12px;">
+      <button id="saveResourceBtn" style="border:1px solid #0f0; color:#0f0; background:rgba(0,255,0,0.1); border-radius:25px; padding:10px 18px;">💾 Save</button>
+      <button id="closeResourceBtn" style="border:1px solid #0cf; color:#0cf; background:rgba(0,200,255,0.1); border-radius:25px; padding:10px 18px;">❌ Close</button>
+    </div>
+    <div id="resourceList" style="color:#0af; margin-top:10px; max-height:100px; overflow-y:auto; font-size:12px; width:90%;"></div>
+    <div style="color:#0cf; font-size:12px; margin-top:8px; text-decoration:underline; cursor:pointer;" id="loadFileBtn">📂 Load a .txt file</div>
+    <input type="file" id="fileInput" accept=".txt,.md,.json,.csv" style="display:none;">
+  </div>
+
+  <div id="memoryOverlay">
+    <div style="color:#0cf; font-size:16px; margin-bottom:10px;">📖 What I've learned</div>
+    <div id="memoryList"></div>
+    <button id="closeMemoryBtn" style="border:1px solid #0cf; color:#0cf; background:rgba(0,200,255,0.1); border-radius:25px; padding:10px 18px; margin-top:10px;">❌ Close</button>
+  </div>
+<script>
+  // ========== FREQUENCY LINE ==========
+  const freqCanvas = document.getElementById('freqCanvas');
+  const fctx = freqCanvas.getContext('2d');
+  let freqW, freqH;
+  function resizeFreq() { freqCanvas.width = freqCanvas.clientWidth; freqCanvas.height = freqCanvas.clientHeight; freqW = freqCanvas.width; freqH = freqCanvas.height; }
+  window.addEventListener('resize', resizeFreq);
+  resizeFreq();
+  let speaking = false, speakEnd = 0;
+  const bars = 64, amps = new Array(bars).fill(0);
+  function updateAmps() { const target = speaking ? 1.0 : 0.1; for (let i = 0; i < bars; i++) { amps[i] += (target * Math.random() * 2 - amps[i]) * 0.2; if (amps[i] < 0.05) amps[i] = 0.05 + Math.random() * 0.1; } }
+  function drawFreq() { fctx.clearRect(0, 0, freqW, freqH); fctx.beginPath(); const step = freqW / (bars - 1), midY = freqH / 2; fctx.moveTo(0, midY); for (let i = 0; i < bars; i++) { const x = i * step, amp = amps[i] * (freqH * 0.4); fctx.lineTo(x, midY + (Math.random() > 0.5 ? 1 : -1) * amp); } fctx.strokeStyle = '#0cf'; fctx.lineWidth = 2; fctx.shadowBlur = 12; fctx.shadowColor = '#0af'; fctx.stroke(); fctx.shadowBlur = 0; }
+  function animFreq() { updateAmps(); drawFreq(); if (speaking && Date.now() > speakEnd) speaking = false; requestAnimationFrame(animFreq); }
+  animFreq();
+
+  // ========== VOICE (APK‑proof + continuous wake word) ==========
+  let selVoice = null, voiceReady = false;
+  let audioUnlocked = false;
+
+  function setupVoice() {
+    const u = new SpeechSynthesisUtterance('');
+    const voices = speechSynthesis.getVoices();
+    if (voices.length) chooseVoice(voices);
+    else { speechSynthesis.onvoiceschanged = () => { const loaded = speechSynthesis.getVoices(); if (loaded.length) { chooseVoice(loaded); speechSynthesis.onvoiceschanged = null; } }; speechSynthesis.speak(u); }
+  }
+
+  function chooseVoice(voices) {
+    selVoice = voices.find(v => v.lang.startsWith('en') && v.name.includes('Male')) ||
+               voices.find(v => v.lang.startsWith('en-US')) ||
+               voices.find(v => v.lang.startsWith('en'));
+    voiceReady = true;
+    setStatus("JARVIS online. Tap anywhere first, then tap the mic.");
+    startWakeWord();   // begin background listening
+  }
+
+  function speakTTS(text) {
+    if (!voiceReady || !('speechSynthesis' in window)) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    if (selVoice) u.voice = selVoice;
+    u.pitch = 1.0; u.rate = 1.0; u.volume = 0.9;
+    speechSynthesis.speak(u);
+    speaking = true;
+    speakEnd = Date.now() + text.length * 60;
+  }
+
+  function setStatus(msg) { document.getElementById('responseDisplay').textContent = msg; }
+
+  // Unlock audio on first touch (required for WebView APK)
+  document.addEventListener('touchstart', function() {
+    if (!audioUnlocked && voiceReady) {
+      const silent = new SpeechSynthesisUtterance('');
+      silent.volume = 0;
+      speechSynthesis.speak(silent);
+      audioUnlocked = true;
+      setStatus("Audio unlocked. Tap mic or say Jarvis.");
+    }
+  }, { once: true });
+
+  // ========== CONTINUOUS WAKE WORD ("Jarvis") ==========
+  let wakeRec = null;
+  let commandPending = false;
+  const wakeStatusDiv = document.getElementById('wakeStatus');
+
+  function startWakeWord() {
+    if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+      wakeStatusDiv.textContent = 'Speech not supported';
+      return;
+    }
+    if (wakeRec) return;  // already running
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    wakeRec = new SR();
+    wakeRec.lang = 'en-US';
+    wakeRec.interimResults = false;
+    wakeRec.continuous = true;   // keep mic open quietly
+
+    wakeRec.onstart = () => {
+      wakeStatusDiv.textContent = 'Listening...';
+    };
+    wakeRec.onresult = (e) => {
+      const last = e.results[e.results.length - 1];
+      if (last.isFinal) {
+        const transcript = last[0].transcript.trim().toLowerCase();
+        if (transcript.includes('jarvis') && !commandPending) {
+          commandPending = true;
+          wakeStatusDiv.textContent = 'Yes, sir?';
+          speakTTS('Yes, sir?');
+          stopWakeWord();
+          startCommand();
+        }
+      }
+    };
+    wakeRec.onerror = (e) => {
+      if (e.error === 'no-speech') return;
+      if (e.error === 'aborted') { wakeRec = null; return; }
+      console.warn('Wake error:', e.error);
+      stopWakeWord();
+      setTimeout(startWakeWord, 1000);
+    };
+    wakeRec.onend = () => {
+      wakeRec = null;
+      if (!commandPending && !isLearning) {
+        setTimeout(startWakeWord, 500);
+      }
+    };
+    wakeRec.start();
+  }
+
+  function stopWakeWord() {
+    if (wakeRec) { wakeRec.abort(); wakeRec = null; }
+  }
+
+  function startCommand() {
+    const micBtn = document.getElementById('micBtn');
+    micBtn.textContent = '🎤 Listening...';
+    setStatus('Listening...');
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const rec = new SR(); rec.lang = 'en-US'; rec.interimResults = false;
+    rec.onresult = (e) => processCommand(e.results[0][0].transcript.trim());
+    rec.onerror = (e) => {
+      micBtn.textContent = '🎤 Speak';
+      commandPending = false;
+      setTimeout(startWakeWord, 500);
+    };
+    rec.onend = () => {
+      micBtn.textContent = '🎤 Speak';
+      commandPending = false;
+      if (!isLearning) setTimeout(startWakeWord, 300);
+    };
+    rec.start();
+  }
+
+  // ========== STEMMER & KNOWLEDGE ==========
+  function stem(w) {
+    let word = w.toLowerCase();
+    if (word.length < 3) return word;
+    if (word.endsWith('sses')) word = word.slice(0, -2);
+    else if (word.endsWith('ies')) word = word.slice(0, -2);
+    else if (word.endsWith('ss')) { /* do nothing */ }
+    else if (word.endsWith('s')) word = word.slice(0, -1);
+    if (word.endsWith('ing')) word = word.slice(0, -3);
+    else if (word.endsWith('ed')) word = word.slice(0, -2);
+    else if (word.endsWith('ly')) word = word.slice(0, -2);
+    return word;
+  }
+  function stemPhrase(str) { return str.split(/\s+/).map(stem).join(' '); }
+
+  let learned = JSON.parse(localStorage.getItem('jarvisLearn') || '{}');
+  let facts = JSON.parse(localStorage.getItem('jarvisFacts') || '[]');
+  let resources = JSON.parse(localStorage.getItem('jarvisResources') || '[]');
+  let lastSubject = localStorage.getItem('jarvisLastSubject') || '';
+  let learningHistory = JSON.parse(localStorage.getItem('jarvisLearnHistory') || '[]');
+
+  const builtInEncyclopedia = [
+    { subject: "capital of india", object: "New Delhi" },
+    { subject: "capital of france", object: "Paris" },
+    { subject: "capital of japan", object: "Tokyo" },
+    { subject: "capital of united kingdom", object: "London" },
+    { subject: "capital of germany", object: "Berlin" },
+    { subject: "largest planet", object: "Jupiter" },
+    { subject: "inventor of telephone", object: "Alexander Graham Bell" },
+    { subject: "father of computer", object: "Charles Babbage" },
+    { subject: "speed of light", object: "299,792,458 m/s" },
+    { subject: "human body temperature normal", object: "98.6°F (37°C)" },
+  ];
+
+  function storeFact(trigger) {
+    const patterns = [
+      /^(.+?)\s+(is|are)\s+(.+)$/i,
+      /^(.+?)\s+means\s+(.+)$/i,
+      /^(.+?)\s+refers to\s+(.+)$/i,
+      /^(.+?)\s+is known as\s+(.+)$/i,
+      /^(.+?)\s+is called\s+(.+)$/i,
+      /^(.+?)\s+stands for\s+(.+)$/i,
+    ];
+    for (const pat of patterns) {
+      const match = trigger.match(pat);
+      if (match) {
+        const subject = stem(match[1].trim());
+        const object = match[match.length - 1].trim();
+        if (!facts.some(f => f.subject === subject && f.object === object)) {
+          facts.push({ subject, object });
+          localStorage.setItem('jarvisFacts', JSON.stringify(facts));
+        }
+        return;
+      }
+    }
+  }
+
+  function answerFromFacts(query) {
+    const q = query.toLowerCase();
+    let subject = null;
+    if (q.startsWith('what is ') || q.startsWith('what are ')) subject = q.replace(/^(what is |what are )/, '').trim();
+    else if (q.startsWith('who is ')) subject = q.replace(/^who is /, '').trim();
+    else if (q.startsWith('where is ')) subject = q.replace(/^where is /, '').trim();
+    else if (q.startsWith('tell me about ')) subject = q.replace(/^tell me about /, '').trim();
+    else if (q.startsWith('define ')) subject = q.replace(/^define /, '').trim();
+    if (subject) {
+      const stemmedSubject = stem(subject);
+      const fact = facts.find(f => f.subject === stemmedSubject);
+      if (fact) return `Based on my knowledge, ${fact.object}.`;
+      const builtIn = builtInEncyclopedia.find(f => stem(f.subject) === stemmedSubject);
+      if (builtIn) return `According to my database, ${builtIn.object}.`;
+    }
+    return null;
+  }
+
+  function conversationalResource(query) {
+    const stemmedQuery = stemPhrase(query);
+    const stemmedWords = stemmedQuery.split(/\s+/).filter(w => w.length > 1);
+    let best = null, bestScore = 0;
+    for (const r of resources) {
+      const sentences = r.content.match(/[^.!?\n]+[.!?\n]*/g) || [r.content];
+      for (const s of sentences) {
+        const stemmedSentence = stemPhrase(s);
+        const sentWords = stemmedSentence.split(/\s+/);
+        let overlap = 0;
+        for (const w of stemmedWords) if (sentWords.includes(w)) overlap++;
+        const score = overlap / (stemmedWords.length + 1);
+        if (score > bestScore) { bestScore = score; best = s; }
+      }
+    }
+    if (best && bestScore > 0.4) {
+      const clean = best.trim().replace(/\n/g, ' ');
+      return `Based on my knowledge, ${clean.charAt(0).toLowerCase() + clean.slice(1)}`;
+    }
+    return null;
+  }
+
+  function smartAnswer(text) {
+    const lower = text.toLowerCase();
+    const stemmedInput = stemPhrase(lower);
+    for (const [trigger, reply] of Object.entries(learned)) {
+      if (stemPhrase(trigger.toLowerCase()) === stemmedInput) return reply;
+    }
+    for (const [trigger, reply] of Object.entries(learned)) if (lower.includes(trigger.toLowerCase())) return reply;
+    const factAns = answerFromFacts(lower);
+    if (factAns) {
+      localStorage.setItem('jarvisLastSubject', lower);
+      document.getElementById('lastTopic').textContent = 'Last topic: ' + lower;
+      return factAns;
+    }
+    const resAns = conversationalResource(text);
+    if (resAns) return resAns;
+    if (lower.includes('your name')) return "I am JARVIS, sir. Just a rather very intelligent system.";
+    if (lower.includes('how are you')) return "All systems operational, sir.";
+    if (lower.includes('hello') || lower.includes('hi')) return "Hello, sir.";
+    if (lower.includes('time')) return "The time is " + new Date().toLocaleTimeString();
+    if (lower.includes('date')) return "Today's date is " + new Date().toLocaleDateString();
+    if (lower.includes('joke')) return jokes[Math.floor(Math.random() * jokes.length)];
+    if (lower.includes('tell me more') || lower.includes('more about it')) {
+      const lastTopic = localStorage.getItem('jarvisLastSubject');
+      if (lastTopic) { const moreInfo = conversationalResource(lastTopic); if (moreInfo) return moreInfo; return "I have no additional information on that topic, sir."; }
+      return "We haven't discussed anything yet, sir.";
+    }
+    return "I don't know that, sir. You can teach me or add it to Resources.";
+  }
+
+  const jokes = [
+    "Why do programmers prefer dark mode? Because light attracts bugs.",
+    "Why did the computer go to therapy? It had too many bytes of emotional baggage.",
+    "I told my computer I needed a break, and now it won't stop sending me Kit-Kats.",
+  ];
+
+  let timerId = null;
+  function setTimer(seconds) {
+    if (timerId) clearTimeout(timerId);
+    if (seconds <= 0) return "Please specify a positive number of seconds.";
+    timerId = setTimeout(() => { speakTTS("Time's up, sir."); setStatus("Time's up!"); timerId = null; }, seconds * 1000);
+    return `Timer set for ${seconds} seconds.`;
+  }
+
+  let isLearning = false, learningStep = 0, pendingTrigger = '';
+
+  function toggleLearning(enable) {
+    if (enable === isLearning) return;
+    isLearning = enable;
+    const learnToggle = document.getElementById('menuLearnToggle');
+    if (isLearning) {
+      learnToggle.classList.add('active');
+      learnToggle.textContent = '🧠 Learn : ON';
+      document.getElementById('modeDisplay').textContent = 'Learn';
+      learningStep = 0;
+      stopWakeWord();
+      setStatus("Learning mode. What phrase should I learn?");
+      speakTTS("Learning mode. What phrase should I learn?");
+    } else {
+      learnToggle.classList.remove('active');
+      learnToggle.textContent = '🧠 Learn : OFF';
+      document.getElementById('modeDisplay').textContent = 'Normal';
+      learningStep = 0;
+      setStatus("Normal mode.");
+      speakTTS("Normal mode.");
+      startWakeWord();
+    }
+  }
+
+  async function processCommand(cmd) {
+    cmd = cmd.trim();
+    if (!cmd) { setTimeout(startWakeWord, 300); return; }
+    const lower = cmd.toLowerCase();
+
+    const timerMatch = lower.match(/set (?:a )?timer for (\d+) seconds?/);
+    if (timerMatch) {
+      const seconds = parseInt(timerMatch[1]);
+      const reply = setTimer(seconds);
+      setStatus(reply);
+      speakTTS(reply);
+      setTimeout(startWakeWord, 300);
+      return;
+    }
+
+    if (lower.includes('learn') && !isLearning) { toggleLearning(true); setTimeout(startWakeWord, 400); return; }
+    if (lower.includes('stop learning')) { toggleLearning(false); setTimeout(startWakeWord, 400); return; }
+
+    const log = document.getElementById('log');
+    const time = new Date().toLocaleTimeString();
+    log.innerHTML += `<div>${time}: "${cmd}"</div>`;
+
+    if (isLearning) {
+      if (learningStep === 0) {
+        pendingTrigger = cmd;
+        learningStep = 1;
+        setStatus(`Trigger: "${pendingTrigger}". What should I reply?`);
+        speakTTS("And what should I reply?");
+        log.innerHTML += `<div style="color:#fb0;">Learning trigger: "${pendingTrigger}"</div>`;
+      } else {
+        learned[pendingTrigger] = cmd;
+        localStorage.setItem('jarvisLearn', JSON.stringify(learned));
+        learningHistory.push({ trigger: pendingTrigger, reply: cmd });
+        localStorage.setItem('jarvisLearnHistory', JSON.stringify(learningHistory));
+        storeFact(pendingTrigger);
+        setStatus(`Learned! "${pendingTrigger}" → "${cmd}"`);
+        speakTTS(`Learned. When you say "${pendingTrigger}", I'll reply "${cmd}".`);
+        log.innerHTML += `<div style="color:#fb0;">Saved: "${pendingTrigger}" → "${cmd}"</div>`;
+        learningStep = 0;
+      }
+      log.scrollTop = log.scrollHeight;
+      setTimeout(startWakeWord, 300);
+      return;
+    }
+
+    const reply = smartAnswer(cmd);
+    log.innerHTML += `<div style="color:#0af;">${time}: JARVIS → ${reply}</div>`;
+    log.scrollTop = log.scrollHeight;
+    setStatus(reply);
+    speakTTS(reply);
+  }
+    // ========== UI BINDINGS ==========
+    document.getElementById('micBtn').onclick = () => {
+      if (!voiceReady) setupVoice();
+      stopWakeWord();
+      commandPending = true;
+      startCommand();
+    };
+
+    document.getElementById('textCmd').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        stopWakeWord();
+        commandPending = true;
+        processCommand(e.target.value);
+        e.target.value = '';
+        commandPending = false;
+        setTimeout(startWakeWord, 2000);
+      }
+    });
+
+    // Menu toggles
+    document.getElementById('menuBtn').onclick = () => document.getElementById('menuPanel').classList.toggle('open');
+    document.addEventListener('click', (e) => {
+      if (!document.getElementById('menuPanel').contains(e.target) && e.target !== document.getElementById('menuBtn'))
+        document.getElementById('menuPanel').classList.remove('open');
+    });
+    document.getElementById('menuLearnToggle').onclick = () => toggleLearning(!isLearning);
+    document.getElementById('menuDelete').onclick = () => {
+      learned = {}; facts = []; resources = []; learningHistory = [];
+      localStorage.clear();
+      setStatus("Memory cleared.");
+      speakTTS("Memory cleared, sir.");
+      updateResourceList();
+    };
+    document.getElementById('menuForgetLast').onclick = () => {
+      if (learningHistory.length > 0) {
+        const last = learningHistory.pop();
+        delete learned[last.trigger];
+        localStorage.setItem('jarvisLearnHistory', JSON.stringify(learningHistory));
+        localStorage.setItem('jarvisLearn', JSON.stringify(learned));
+        setStatus(`Forgot "${last.trigger}".`);
+        speakTTS(`Forgot "${last.trigger}".`);
+      } else {
+        setStatus("Nothing to forget.");
+        speakTTS("Nothing to forget, sir.");
+      }
+    };
+    document.getElementById('menuViewMemory').onclick = () => {
+      const memoryOverlay = document.getElementById('memoryOverlay');
+      const memoryList = document.getElementById('memoryList');
+      let content = '';
+      for (const [trigger, reply] of Object.entries(learned)) content += `"${trigger}" → "${reply}"\n`;
+      for (const fact of facts) content += `[Fact] ${fact.subject} → ${fact.object}\n`;
+      memoryList.textContent = content || 'No memory yet.';
+      memoryOverlay.style.display = 'flex';
+    };
+    document.getElementById('closeMemoryBtn').onclick = () => document.getElementById('memoryOverlay').style.display = 'none';
+
+    // Resources overlay
+    const resourceOverlay = document.getElementById('resourceOverlay');
+    const resourceText = document.getElementById('resourceText');
+    const resourceList = document.getElementById('resourceList');
+    document.getElementById('menuResourcesBtn').onclick = () => { resourceOverlay.style.display = 'flex'; updateResourceList(); };
+    document.getElementById('closeResourceBtn').onclick = () => resourceOverlay.style.display = 'none';
+    resourceOverlay.onclick = (e) => { if (e.target === resourceOverlay) resourceOverlay.style.display = 'none'; };
+    document.getElementById('saveResourceBtn').onclick = () => {
+      const text = resourceText.value.trim();
+      if (!text) return;
+      resources.push({ id: Date.now(), content: text, preview: text.substring(0,80)+(text.length>80?'…':'') });
+      localStorage.setItem('jarvisResources', JSON.stringify(resources));
+      resourceText.value = '';
+      updateResourceList();
+      setStatus('Knowledge saved.');
+      speakTTS('Knowledge saved, sir.');
+    };
+    document.getElementById('loadFileBtn').onclick = () => document.getElementById('fileInput').click();
+    document.getElementById('fileInput').onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      resourceText.value = await file.text();
+    };
+    function updateResourceList() {
+      resourceList.innerHTML = '';
+      if (resources.length === 0) { resourceList.innerHTML = '<div style="color:#888;">No resources yet.</div>'; return; }
+      resources.forEach((r, idx) => {
+        const d = document.createElement('div');
+        d.style.cssText = 'color:#0af;font-size:11px;margin:4px 0;cursor:pointer;';
+        d.textContent = `${idx+1}. ${r.preview}`;
+        d.onclick = () => resourceText.value = r.content;
+        resourceList.appendChild(d);
+      });
+    }
+    updateResourceList();
+
+    // Init
+    setupVoice();
+    document.getElementById('lastTopic').textContent = lastSubject ? 'Last topic: ' + lastSubject : '';
+  </script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js'));
+    }
+  </script>
+</body>
+</html>
